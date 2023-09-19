@@ -9,12 +9,14 @@ import (
 
 type Store interface {
 	Init() error
-	getAllAccounts() ([]Account, error)
-	insertAccount(a *Account) error
+	GetAllAccounts() ([]Account, error)
+	InsertAccount(a *Account) error
+	AddAmount(to int, amount int) error
+	SubtractAmount(from int, amount int) error
 }
 
 type PostgresDB struct {
-	db *sql.DB
+	Db *sql.DB
 }
 
 // NewStore TODO: Read Credentials from ENV
@@ -28,7 +30,7 @@ func NewStore() (*PostgresDB, error) {
 	return &PostgresDB{db}, nil
 }
 
-func (s *PostgresDB) CreateTable() error {
+func (s *PostgresDB) createTable() error {
 	query := `
 		CREATE TABLE IF NOT EXISTS accounts (
 		    id SERIAL PRIMARY KEY NOT NULL,
@@ -41,35 +43,35 @@ func (s *PostgresDB) CreateTable() error {
 		    created_at TIMESTAMP
 		);
 	`
-	_, err := s.db.Exec(query)
+	_, err := s.Db.Exec(query)
 	return err
 }
 
 func (s *PostgresDB) Init() error {
-	return s.CreateTable()
+	return s.createTable()
 }
 
-func (s *PostgresDB) insertAccount(a *Account) error {
+func (s *PostgresDB) InsertAccount(a *Account) error {
 	query := `
 		INSERT INTO accounts (first_name, last_name, number, email, encrypted_password, balance, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
 	`
-	_, err := s.db.Exec(query, a.FirstName, a.LastName, a.Number, a.Email, a.EncryptedPassword, a.Balance, a.CreatedAt)
+	_, err := s.Db.Exec(query, a.FirstName, a.LastName, a.Number, a.Email, a.EncryptedPassword, a.Balance, a.CreatedAt)
 	return err
 }
 
-func (s *PostgresDB) getAllAccounts() ([]Account, error) {
+func (s *PostgresDB) GetAllAccounts() ([]Account, error) {
 	query := `
 		SELECT * FROM accounts
 	`
-	rows, err := s.db.Query(query)
+	rows, err := s.Db.Query(query)
 
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	accounts := []Account{}
+	var accounts []Account
 
 	for rows.Next() {
 		var a Account
@@ -80,4 +82,57 @@ func (s *PostgresDB) getAllAccounts() ([]Account, error) {
 		accounts = append(accounts, a)
 	}
 	return accounts, nil
+}
+
+func (s *PostgresDB) GetAccountByID(id int) *Account {
+	query := `
+		SELECT * FROM accounts WHERE number = $1
+	`
+	row := s.Db.QueryRow(query, id)
+
+	var a Account
+	err := row.Scan(&a.ID, &a.FirstName, &a.LastName, &a.Number, &a.Email, &a.EncryptedPassword, &a.Balance, &a.CreatedAt)
+	if err != nil {
+		return nil
+	}
+	return &a
+}
+
+func (s *PostgresDB) AddAmount(to int, amount int) error {
+	toAccount := s.GetAccountByID(to)
+	if toAccount == nil {
+		return fmt.Errorf("account not found")
+	}
+	query := `
+		UPDATE accounts SET balance = $1 WHERE id = $2
+	`
+	_, err := s.Db.Exec(query, toAccount.Balance+amount, toAccount.ID)
+	return err
+}
+
+func (s *PostgresDB) SubtractAmount(from int, amount int) error {
+	fromAccount := s.GetAccountByID(from)
+	if fromAccount == nil {
+		return fmt.Errorf("account not found")
+	}
+	if fromAccount.Balance < amount {
+		return fmt.Errorf("not enough balance")
+	}
+	query := `
+		UPDATE accounts SET balance = $1 WHERE id = $2
+	`
+	_, err := s.Db.Exec(query, fromAccount.Balance-amount, fromAccount.ID)
+	return err
+}
+
+func (s *PostgresDB) Transfer(from int, to int, amount int) error {
+	err := s.SubtractAmount(from, amount)
+	if err != nil {
+		return err
+	}
+	err = s.AddAmount(to, amount)
+	if err != nil {
+		return err
+	}
+	return nil
 }

@@ -40,6 +40,16 @@ type CreateAccountResponse struct {
 	Account Account `json:"account"`
 }
 
+type WithdrawRequest struct {
+	FromID int `json:"from_id"`
+	Amount int `json:"amount"`
+}
+
+type DepositRequest struct {
+	ToID   int `json:"to_id"`
+	Amount int `json:"amount"`
+}
+
 type apiFunc func(http.ResponseWriter, *http.Request) error
 
 type ApiError struct {
